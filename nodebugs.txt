@@ -1,0 +1,34 @@
+new TTY(1, true) is just fucked, tty.js:WriteSteam shouldn't be creating it,
+	or if it does the caller shouldn't wipe out the destroy function
+OR   uv_loop_close is broken
+
+
+const TTY = process.binding('tty_wrap').TTY;
+var tty = new TTY(1, true);
+will cause a similar leak
+
+uv_loop_close is not called in node.cc
+
+
+node.js:657, location process.stdout and stuff are created
+startup.processStdio
+
+
+tty handles are leaking as a result of api calls (from javascript?) that are created when the program is attached to by a debugger
+	- more handles do not leak if multiple debuggers are attached, so the issue is global
+
+
+tty handles are leaking (2 of them), which crashes debug-agent on shutdown
+
+
+uv_want_endgame
+
+uv_run
+
+uv_close
+
+uv_loop_close can be called after uv_thread_join? Because uv_close TAKES a handle, and uv_thread_join doesn't return until all handles are freed?
+
+maybe their life cycle should be longer? SHould the thread terminate?
+
+If so the handle scopes are wrong.
