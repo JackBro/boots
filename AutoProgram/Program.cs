@@ -23,26 +23,202 @@ namespace AutoProgram
         [STAThread]
         static void Main(string[] args)
         {
+            var procs = Process.GetProcesses().ToList()
+                .Where(p => p.ProcessName.Length > 0)
+                .Where(p => p.MainWindowTitle.Length > 0)
+                .Select(p => p.ProcessName + "-" + p.MainWindowTitle)
+                .ToList();
+
+            //new HashSet<string>(procs).ToList().ForEach(s => Console.WriteLine(s));
+
             //This means: we want to run ls in a command prompt
-            IntPtr cmd = new AccessCommandPrompt().Perform();
-            new RunCommand("ls", cmd).Perform();
+            //var cmd = new AccessCommandPrompt().Perform();
+            //new RunCommand("ls", cmd).Perform();
 
             //This means: we want to run ls, we don't care how
             //new RunCommand("ls").Perform();
 
             //Specifying the command prompt forces linear execution, while not specifying it may
             //  mean sequential commands are run out of order, and in different prompts
+
+
+            //var cmd = new AccessCommandPrompt().Perform();
+            //new RunCommand("ssh -i ~/.ssh/id_rsa qckbrook@linux.student.cs.uwaterloo.ca", cmd);
+
+            //ssh.Perform();
+            //new RunCommand("ls", ssh).Perform();
+
+            //ssh2.Perform();
+
+            /*
+            new AccessSSHPrompt(
+                        "qckbrook",
+                        "linux.student.cs.uwaterloo.ca",
+                        promptPrefix: "ubuntu").Perform();
+            */
+
+            
+            var prompt = new UMLLogin().Perform();
+
+            new RunCommand("touch test", prompt).Perform();
+            new RunCommand("ls", prompt).Perform();
+            
         }
     }
-    
+
+    class UMLLogin : AccessCommandPrompt
+    {
+        public UMLLogin(bool fresh=false)
+        {
+            if(fresh)
+            {
+                //Something that won't match?
+                freeTitlePrefix = "A_(S*DJ_*AJSD*AHJSD*(JAS*(_";
+            }
+        }
+
+        const string basePrefix = "AutoShell SUB user@cs458-uml";
+        string freeTitlePrefix = basePrefix;
+        public override bool isFreeTitle(string otherTitle)
+        {
+            return otherTitle.StartsWith(freeTitlePrefix);
+        }
+
+        public override void Execute()
+        {
+            {
+                var sshTwice = new NestedOperation<AccessSSHPrompt, AccessCommandPrompt, AccessSSHPrompt, AccessCommandPrompt>(
+                    new AccessSSHPrompt(
+                        "qckbrook",
+                        "linux.student.cs.uwaterloo.ca",
+                        promptPrefix: "ubuntu"),
+                    new AccessSSHPrompt(
+                        "qckbrook",
+                        "ugster05.student.cs.uwaterloo.ca",
+                        promptPrefix: "qckbrook"),
+                    (ssh2, prompt) =>
+                    {
+                        ssh2.proc = prompt.Handle;
+                    }
+                );
+
+                var ssh = sshTwice.Perform();
+                this.proc = ssh.Handle;
+            }
+
+            freeTitlePrefix = "AutoShell SUB cs458-uml login:";
+            new RunCommand("uml", this).Perform();
+            freeTitlePrefix = basePrefix;
+            new RunCommand("user", this).Perform();
+        }
+    }
+
+    //For when operation 2 depends on operation 1... hmm... not sure if I like this
+    class NestedOperation<Op1, T1, Op2, T2> : Operation<T2>
+        where Op1 : Operation<T1>
+        where Op2 : Operation<T2>
+    {
+        Op1 op1;
+        Op2 op2;
+        Action<Op2, T1> useOp1Result;
+        public NestedOperation(Op1 op1, Op2 op2, Action<Op2, T1> useOp1Result)
+        {
+            this.op1 = op1;
+            this.op2 = op2;
+            this.useOp1Result = useOp1Result;
+        }
+
+        public override bool Retrieve(ref T2 result)
+        {
+            return op2.Retrieve(ref result);
+        }
+
+        public override void Execute()
+        {
+            T1 op1result = op1.Perform();
+            useOp1Result(op2, op1result);
+            op2.Perform();
+        }
+    }
+
+    class AccessSSHPrompt : AccessCommandPrompt
+    {
+        string command;
+        string promptPrefix;
+        public AccessSSHPrompt(
+            string username, 
+            string server, 
+            string identity = "~/.ssh/id_rsa", 
+            string promptPrefix = null,
+            IntPtr? proc = null)
+        {
+            //-t -t is for http://stackoverflow.com/questions/7114990/pseudo-terminal-will-not-be-allocated-because-stdin-is-not-a-terminal
+            //  because we get errors otherwise
+            command = string.Format("ssh -t -t -i {0} {1}@{2}", identity, username, server);
+            this.promptPrefix = promptPrefix;
+            if (proc.HasValue)
+            {
+                this.proc = proc.Value;
+            }
+        }
+
+        string prevPrompt = null;
+        public override bool isFreeTitle(string otherTitle)
+        {
+            if (promptPrefix == null && prevPrompt == null) return false;
+            if (promptPrefix == null)
+            {
+                //Case of nested ssh shells
+                if (prevPrompt.StartsWith("AutoShell SUB") && otherTitle.StartsWith(prevPrompt))
+                {
+                    return false;
+                }
+
+                return otherTitle.StartsWith("AutoShell SUB");
+            }
+
+            return otherTitle.StartsWith(freeTitle + " SUB " + promptPrefix);
+        }
+
+        public override void Execute()
+        {
+            if(proc == IntPtr.Zero)
+            {
+                var cmd = new AccessCommandPrompt();
+                cmd.Perform();
+
+                //Take the proc for ourselves... we can't just call base.Execute, as we have already cannabalized
+                //  our version of AccessCommandPrompt by interfering with freeTitle.
+                this.proc = cmd.Handle;
+            }
+
+            prevPrompt = this.getTitle();
+
+            new RunCommand(command, this).Perform();
+
+            string promptPrefix = this.getTitle().Substring("AutoShell SUB ".Length);
+            int index = promptPrefix.IndexOf(":");
+            if(index < 0)
+            {
+                throw new Exception("Do not know how to identify this SSH prompt, I should write code for this case so it doesn't have to crash (although it will always be less useful to not identify when the shell is reading for input");
+            }
+            promptPrefix = promptPrefix.Substring(0, index);
+        }
+    }
+
+    //An operation is less something we do, and more something we insure. We may open the patient
+    //  up and see that everything is fine, and then do nothing (except retrive proof everything
+    //  is alright).
+    //EX: When running commands we less want to have them run, as have them in a running state
     abstract class Operation<T>
     {
         volatile bool calledPerform = false;
+        [DebuggerStepThrough]
         public T Perform()
         {
             if (calledPerform)
             {
-                throw new Exception("Do not call Perform on an operation twice, it should have no effect (and if it does the Operation is misbehaving).");
+                //throw new Exception("Do not call Perform on an operation twice, it should have no effect (and if it does the Operation is misbehaving).");
             }
             calledPerform = true;
             
@@ -61,22 +237,24 @@ namespace AutoProgram
         }
 
         //Returns true if operation is applied, and sets val with the result
-        abstract protected bool Retrieve(ref T result);
+        public abstract bool Retrieve(ref T result);
 
         //Applies operation
-        abstract protected void Execute();
+        public abstract void Execute();
     }
 
     abstract class VoidOperation : Operation<bool>
     {
         bool executed = false;
 
-        protected sealed override bool Retrieve(ref bool result)
+        [DebuggerStepThrough]
+        public sealed override bool Retrieve(ref bool result)
         {
             result = true;
             return executed;
         }
-        protected sealed override void Execute()
+        [DebuggerStepThrough]
+        public sealed override void Execute()
         {
             executed = true;
             ExecuteVoid();
@@ -176,10 +354,11 @@ namespace AutoProgram
         }
     }
 
-    class AccessCommandPrompt : Operation<IntPtr>
+    class AccessCommandPrompt : Operation<AccessCommandPrompt>
     {
-        public const string freeTitle = @"C:\Windows\System32\cmd.exe";
-        public const string procName = "cmd";
+        public string freeTitle = @"AutoShell";
+        public string shellExe = @"C:\Users\quentin.brooks\Dropbox\boots\AutoShell\bin\Debug\AutoShell.exe";
+        public string procName = "AutoShell";
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);
@@ -191,8 +370,9 @@ namespace AutoProgram
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
+        public IntPtr Handle { get { return proc; } }
 
-        IntPtr proc = IntPtr.Zero;
+        public IntPtr proc = IntPtr.Zero;
         private void setProc(IntPtr proc)
         {
             this.proc = proc;
@@ -221,13 +401,23 @@ namespace AutoProgram
             }
         }
 
-        protected override bool Retrieve(ref IntPtr procOut)
+        public string getTitle()
+        {
+            return ProcessExtensions.GetProcessByHandle(Handle, procName).MainWindowTitle;
+        }
+
+        public virtual bool isFreeTitle(string otherTitle)
+        {
+            //Replace spaces with nothing... because I have observed random spaces, and idk what to do about them
+            return freeTitle.Replace(" ", "").ToLower() == otherTitle.Replace(" ", "").ToLower();
+        }
+
+        public override bool Retrieve(ref AccessCommandPrompt prompt)
         {
             //Find free cmd.exe
-
             List<Process> procs = Process.GetProcessesByName(procName).ToList();
 
-            procs = procs.Where(p => p.MainWindowTitle == freeTitle).ToList();
+            procs = procs.Where(p => isFreeTitle(p.MainWindowTitle)).ToList();
 
             if(procs.Count == 0)
             {
@@ -238,15 +428,15 @@ namespace AutoProgram
             //  there should be a Function passed into this class to validate processes.
             setProc(procs.First().MainWindowHandle);
 
-            procOut = proc;
+            prompt = this;
             return true;
         }
 
-        protected override void Execute()
+        public override void Execute()
         {
             ProcessStartInfo startInfo = new ProcessStartInfo();
             startInfo.WindowStyle = ProcessWindowStyle.Normal;
-            startInfo.FileName = "cmd.exe";
+            startInfo.FileName = shellExe;
 
             Process process = Process.Start(startInfo);
             while(process.MainWindowHandle == IntPtr.Zero)
@@ -269,34 +459,33 @@ namespace AutoProgram
         public const int PASTE_IN_COMMAND_PROMPT = 0xfff1;
         
         string command;
-        IntPtr? handle;
+        AccessCommandPrompt prompt;
         bool dontBlock;
         public RunCommand(
             string command, 
-            IntPtr? handle = null, 
+            AccessCommandPrompt prompt = null, 
             bool dontBlock = false) //Makes our execute return right away, before the command finishes
         {
-            this.handle = handle;
+            this.prompt = prompt;
             this.command = command;
             this.dontBlock = dontBlock;
         }
 
         protected override void ExecuteVoid()
         {
-            if(!handle.HasValue)
+            if(prompt == null)
             {
-                handle = new AccessCommandPrompt().Perform();
+                prompt = new AccessCommandPrompt();
+                prompt.Perform();
             }
 
             Clipboard.SetText(command + "\r\n");
-            SendMessage(handle.Value, WM_COMMAND, PASTE_IN_COMMAND_PROMPT, 0);
+            SendMessage(prompt.Handle, WM_COMMAND, PASTE_IN_COMMAND_PROMPT, 0);
 
             if(!this.dontBlock)
             {
-                Func<string> getTitle = () => ProcessExtensions.GetProcessByHandle(handle.Value, AccessCommandPrompt.procName).MainWindowTitle;
-                
                 //Poll until it is done
-                while (getTitle() != AccessCommandPrompt.freeTitle)
+                while (!prompt.isFreeTitle(prompt.getTitle()))
                 {
                     Thread.Sleep(50);
                 }
