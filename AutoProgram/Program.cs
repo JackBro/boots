@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -19,7 +20,6 @@ namespace AutoProgram
 
     class Program
     {
-        static string dir = @"C:\Users\quentin.brooks\Dropbox\boots\test";
         [STAThread]
         static void Main(string[] args)
         {
@@ -28,6 +28,9 @@ namespace AutoProgram
                 .Where(p => p.MainWindowTitle.Length > 0)
                 .Select(p => p.ProcessName + "-" + p.MainWindowTitle)
                 .ToList();
+
+            //Commands.SyncFiles();
+            //return;
 
             //new HashSet<string>(procs).ToList().ForEach(s => Console.WriteLine(s));
 
@@ -50,6 +53,12 @@ namespace AutoProgram
 
             //ssh2.Perform();
 
+            //var prompt = Commands.WaterlooStudentPrompt().Perform();
+
+            //var prompt = Commands.UgsterPrompt();
+
+            //new AccessCommandPrompt().Perform();
+
             /*
             new AccessSSHPrompt(
                         "qckbrook",
@@ -57,12 +66,235 @@ namespace AutoProgram
                         promptPrefix: "ubuntu").Perform();
             */
 
-            
+            /*
             var prompt = new UMLLogin().Perform();
 
             new RunCommand("touch test", prompt).Perform();
             new RunCommand("ls", prompt).Perform();
+            */
+
+            //Commands.RunSploit(2);
+
+            //Upload
+
+            //Commands.SyncFiles();
+
+            //Commands.WaterlooStudentPrompt().Perform();
+
+            Commands.RunSploit(4);
+
+            return;
+
+            int sploitNum = 4;
+            string sploitFile = "sploit" + sploitNum + ".c";
+
+            var prompt = new UMLLogin().Perform();
+
+            prompt.Run("cd /share");
+            prompt.Run("cat > " + sploitFile, dontBlock: true);
+            string sploitText = File.ReadAllText(Commands.localDirWin + "/" + sploitFile);
+            sploitText
+                .Split('\n')
+                .Select(line => line.Replace("\r", ""))
+                .ToList()
+                .ForEach(line =>
+                {
+                    prompt.Run(line, dontBlock: true, noDelay: true);
+                });
+
+            Thread.Sleep(100);
+            prompt.Run("\x4");
+            prompt.Run("cat " + sploitFile);
+
             
+            //var prompt = new UMLLogin().Perform();
+            prompt.Run("cd /share");
+            prompt.Run(string.Format("gcc -Wall -ggdb sploit{0}.c -o sploit{0}", sploitNum));
+            prompt.Run("./sploit4");
+
+
+            /*
+            prompt.Run("rm gdb.txt");
+            prompt.Run("gdb sploit" + sploitNum, dontBlock: true);
+            prompt.Run("catch exec", dontBlock: true);
+            prompt.Run("run", dontBlock: true);
+            Thread.Sleep(200);
+            prompt.Run("symbol-file /usr/local/bin/backup", dontBlock: true);
+            prompt.Run("y", dontBlock: true);
+            prompt.Run("break backup.c:36", dontBlock: true);
+            //prompt.Run("break backup.c:39", dontBlock: true);
+            prompt.Run("break backup.c:43", dontBlock: true);
+
+            prompt.Run("cont", dontBlock: true);
+            Thread.Sleep(500);
+
+            prompt.Run("set logging on", dontBlock: true);
+
+            prompt.Run("info frame", dontBlock: true);
+            prompt.Run("print $esp", dontBlock: true);
+            prompt.Run("x /512bx (0xffbfdcec) - 400", dontBlock: true);
+            prompt.Run("\n", dontBlock: true);
+            prompt.Run("\n", dontBlock: true);
+
+            prompt.Run("cont", dontBlock: true);
+
+            prompt.Run("info frame", dontBlock: true);
+            prompt.Run("print $esp", dontBlock: true);
+            prompt.Run("x /512bx (0xffbfdcec) - 400", dontBlock: true);
+            prompt.Run("\n", dontBlock: true);
+            prompt.Run("\n", dontBlock: true);
+
+            prompt.Run("quit", dontBlock: true);
+            prompt.Run("y", dontBlock: true);
+
+
+            //Take the gdb.txt file off ugster
+            var waterlooPrompt = Commands.WaterlooStudentPrompt().Perform();
+            waterlooPrompt.Run(string.Format(
+                "rsync -iva qckbrook@ugster05.student.cs.uwaterloo.ca:{0}/gdb.txt ~/gdb.txt",
+                Commands.ugsterDir
+            ));
+
+
+            //Take the gdb.txt file off waterloo
+            var localPrompt = new AccessCommandPrompt().Perform();
+            localPrompt.Run(
+string.Format(@"bash
+eval `ssh-agent -s`
+ssh-add /C/Users/quentin.brooks/.ssh/id_rsa
+rsync -iva qckbrook@linux.student.cs.uwaterloo.ca:~/gdb.txt {0}/gdb.txt
+exit", Commands.localDir));
+            */
+        }
+    }
+
+    static class Commands
+    {
+        public static string localDir = @"/C/Users/quentin.brooks/Dropbox/School/2016/CS458/ugster";
+        public static string localDirWin = @"C:/Users/quentin.brooks/Dropbox/School/2016/CS458/ugster";
+        public static string uwDir = @"~/ugster";
+        public static string ugsterDir = @"~/uml/share";
+
+        public static void RunSploit(int sploitNum)
+        {
+            var umlPrompt = (UMLLogin)new UMLLogin().Perform();
+            umlPrompt.Run("cd /share");
+            umlPrompt.Run(string.Format("gcc -Wall -ggdb sploit{0}.c -o sploit{0}", sploitNum));
+            umlPrompt.Run("./sploit" + sploitNum, beforeBlock: () => umlPrompt.freeTitlePrefix = "AutoShell SUB root@cs458");
+            umlPrompt.Run("whoami");
+            umlPrompt.Run("exit", beforeBlock: () => umlPrompt.freeTitlePrefix = UMLLogin.basePrefix);
+        }
+
+        public static void SyncFiles()
+        {
+            Directory.EnumerateFiles(localDirWin).ToList().ForEach(filePath =>
+            {
+                return;
+                string text = File.ReadAllText(filePath);
+                if(text.Contains("\r\n"))
+                {
+                    Console.WriteLine("File has windows line endings, changing to unix");
+                    text = text.Replace("\r\n", "\n");
+                    File.WriteAllText(filePath, text);
+                }
+            });
+
+            var localPrompt = new AccessCommandPrompt().Perform();
+
+            localPrompt.Run(
+string.Format(@"bash
+eval `ssh-agent -s`
+ssh-add /C/Users/quentin.brooks/.ssh/id_rsa
+rsync -iva {0}/ qckbrook@linux.student.cs.uwaterloo.ca:{1}/
+exit", localDir, uwDir));
+
+
+            var waterlooPrompt = Commands.WaterlooStudentPrompt().Perform();
+
+            waterlooPrompt.Run(string.Format(
+                "rsync -iva {0}/ qckbrook@ugster05.student.cs.uwaterloo.ca:{1}/",
+                uwDir,
+                ugsterDir
+            ));
+        }
+
+        public static AccessSSHPrompt WaterlooStudentPrompt()
+        {
+            return new AccessSSHPrompt(
+                        "qckbrook",
+                        "linux.student.cs.uwaterloo.ca",
+                        promptPrefix: "ubuntu");
+        }
+
+        public static AccessCommandPrompt UgsterPrompt()
+        {
+            var sshTwice = new NestedOperation<AccessSSHPrompt, AccessCommandPrompt, AccessSSHPrompt, AccessCommandPrompt>(
+                    WaterlooStudentPrompt(),
+                    new AccessSSHPrompt(
+                        "qckbrook",
+                        "ugster05.student.cs.uwaterloo.ca",
+                        promptPrefix: "qckbrook"),
+                    (ssh2, prompt) =>
+                    {
+                        ssh2.proc = prompt.Handle;
+                    }
+                );
+
+            return sshTwice.Perform();
+        }
+
+        [DllImport("User32.dll")]
+        public static extern int SendMessage(IntPtr hWnd, int uMsg, int wParam, uint lParam);
+        public const int WM_COMMAND = 0x0111;
+        public const int PASTE_IN_COMMAND_PROMPT = 0xfff1;
+
+        public static void Run(this AccessCommandPrompt prompt, string command, bool dontBlock=false, Action beforeBlock = null, bool noDelay=false)
+        {
+            if (prompt == null)
+            {
+                prompt = new AccessCommandPrompt();
+                prompt.Perform();
+            }
+
+            Clipboard.SetText(command + "\r\n");
+            SendMessage(prompt.Handle, WM_COMMAND, PASTE_IN_COMMAND_PROMPT, 0);
+
+            if (!noDelay)
+            {
+                //Wait until the command starts... because I am a bad programmer. Could totally fix this by properly
+                //  talking to AutoShell, but you know... not enough time
+                Thread.Sleep(100);
+            }
+
+            if (!dontBlock)
+            {
+                if (beforeBlock != null)
+                {
+                    beforeBlock();
+                }
+
+                //Poll until it is done
+                while (!prompt.isFreeTitle(prompt.getTitle()))
+                {
+                    Thread.Sleep(50);
+                }
+            }
+        }
+
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GenerateConsoleCtrlEvent(ConsoleCtrlEvent sigevent, int dwProcessGroupId);
+        public enum ConsoleCtrlEvent
+        {
+            CTRL_C = 0,
+            CTRL_BREAK = 1,
+            CTRL_CLOSE = 2,
+            CTRL_LOGOFF = 5,
+            CTRL_SHUTDOWN = 6
+        }
+        public static void SendSignal(this AccessCommandPrompt prompt, ConsoleCtrlEvent signal)
+        {
+            GenerateConsoleCtrlEvent(signal, ProcessExtensions.GetProcessByHandle(prompt.Handle).Id);
         }
     }
 
@@ -77,8 +309,8 @@ namespace AutoProgram
             }
         }
 
-        const string basePrefix = "AutoShell SUB user@cs458-uml";
-        string freeTitlePrefix = basePrefix;
+        public const string basePrefix = "AutoShell SUB user@cs458-uml";
+        public string freeTitlePrefix = basePrefix;
         public override bool isFreeTitle(string otherTitle)
         {
             return otherTitle.StartsWith(freeTitlePrefix);
@@ -86,30 +318,12 @@ namespace AutoProgram
 
         public override void Execute()
         {
-            {
-                var sshTwice = new NestedOperation<AccessSSHPrompt, AccessCommandPrompt, AccessSSHPrompt, AccessCommandPrompt>(
-                    new AccessSSHPrompt(
-                        "qckbrook",
-                        "linux.student.cs.uwaterloo.ca",
-                        promptPrefix: "ubuntu"),
-                    new AccessSSHPrompt(
-                        "qckbrook",
-                        "ugster05.student.cs.uwaterloo.ca",
-                        promptPrefix: "qckbrook"),
-                    (ssh2, prompt) =>
-                    {
-                        ssh2.proc = prompt.Handle;
-                    }
-                );
-
-                var ssh = sshTwice.Perform();
-                this.proc = ssh.Handle;
-            }
+            proc = Commands.UgsterPrompt().Handle;
 
             freeTitlePrefix = "AutoShell SUB cs458-uml login:";
-            new RunCommand("uml", this).Perform();
+            this.Run("uml");
             freeTitlePrefix = basePrefix;
-            new RunCommand("user", this).Perform();
+            this.Run("user");
         }
     }
 
@@ -144,11 +358,11 @@ namespace AutoProgram
     class AccessSSHPrompt : AccessCommandPrompt
     {
         string command;
-        string promptPrefix;
+        public string promptPrefix;
         public AccessSSHPrompt(
             string username, 
             string server, 
-            string identity = "~/.ssh/id_rsa", 
+            string identity = "/C/Users/quentin.brooks/.ssh/id_rsa", 
             string promptPrefix = null,
             IntPtr? proc = null)
         {
@@ -194,7 +408,7 @@ namespace AutoProgram
 
             prevPrompt = this.getTitle();
 
-            new RunCommand(command, this).Perform();
+            this.Run(command);
 
             string promptPrefix = this.getTitle().Substring("AutoShell SUB ".Length);
             int index = promptPrefix.IndexOf(":");
@@ -382,6 +596,7 @@ namespace AutoProgram
             List<Process> parents = ProcessExtensions.GetParentProcesses(prevProc.Handle);
             parents.Insert(0, prevProc);
 
+            /* //Eh... skip this for a bit
             SetForegroundWindow(proc);
             GetForegroundWindow();
 
@@ -399,6 +614,7 @@ namespace AutoProgram
                     }
                 }
             }
+            */
         }
 
         public string getTitle()
@@ -447,48 +663,6 @@ namespace AutoProgram
             if(proc == IntPtr.Zero)
             {
                 throw new Exception("wtf");
-            }
-        }
-    }
-
-    class RunCommand : VoidOperation
-    {
-        [DllImport("User32.dll")]
-        public static extern int SendMessage(IntPtr hWnd, int uMsg, int wParam, uint lParam);
-        public const int WM_COMMAND = 0x0111;
-        public const int PASTE_IN_COMMAND_PROMPT = 0xfff1;
-        
-        string command;
-        AccessCommandPrompt prompt;
-        bool dontBlock;
-        public RunCommand(
-            string command, 
-            AccessCommandPrompt prompt = null, 
-            bool dontBlock = false) //Makes our execute return right away, before the command finishes
-        {
-            this.prompt = prompt;
-            this.command = command;
-            this.dontBlock = dontBlock;
-        }
-
-        protected override void ExecuteVoid()
-        {
-            if(prompt == null)
-            {
-                prompt = new AccessCommandPrompt();
-                prompt.Perform();
-            }
-
-            Clipboard.SetText(command + "\r\n");
-            SendMessage(prompt.Handle, WM_COMMAND, PASTE_IN_COMMAND_PROMPT, 0);
-
-            if(!this.dontBlock)
-            {
-                //Poll until it is done
-                while (!prompt.isFreeTitle(prompt.getTitle()))
-                {
-                    Thread.Sleep(50);
-                }
             }
         }
     }

@@ -93,7 +93,7 @@ namespace AutoShell
                 Console.Title = title;
             });
 
-            HashSet<char> promptStarts = new HashSet<char> { '>', '$', ':' };
+            HashSet<char> promptStarts = new HashSet<char> { '>', '$', ':', '#' };
             char lastChar = ' ';
             Thread readOutputThread = new Thread(() =>
             {
@@ -173,6 +173,8 @@ namespace AutoShell
                 while (true)
                 {
                     int ch = Console.Read();
+                    //Don't print \r
+                    if (ch == 13) continue;
                     if (ch != -1)
                     {
                         stdIn.Write((char)ch);
