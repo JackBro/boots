@@ -187,6 +187,7 @@ BOOL result;
 //How can we free these? Lets hope we don't encounter many HANDLES, cause we never free these
 std::map<HANDLE, CmdRead*> readers;
 std::mutex lockReaders;
+std::condition_variable lockReadersCond;
 
 bool useWhatever = false;
 
@@ -208,6 +209,8 @@ BOOL readConsoleW(
 			_beginthreadex(NULL, 0, CmdRead::StaticReadLoop, cmdRead, NULL, NULL);
 		}
 		cmdRead = readers.find(hConsoleInput)->second;
+		lkReaders.unlock();
+		lockReadersCond.notify_one();
 	}
 	BOOL result = cmdRead->callFromInReadConsoleW(lpBuffer, nNumberOfCharsToRead, lpNumberOfCharsRead, pInputControl);
 	return result;
@@ -224,26 +227,27 @@ static BOOL WINAPI write_console(
 	return result;
 }
 
+static void WriteToCmd(const char* text) {
+	CmdRead* cmdRead;
+	{
+		std::unique_lock<std::mutex> lkReaders(lockReaders);
+		lockReadersCond.wait(lkReaders, [&] {
+			for (int ix = 0; ix < readers.size(); ix++) {
+				HANDLE hConsoleInput = GetStdHandle(STD_INPUT_HANDLE);
+				return readers.find(hConsoleInput) != readers.end();
+			}
+			return false;
+		});
+		cmdRead = readers.find(GetStdHandle(STD_INPUT_HANDLE))->second;
+	}
+	cmdRead->Write(text);
+}
+
 static unsigned __stdcall WriteTest(void*nothing) {
 	int delay = 1000;
 	while (true) {
 		Sleep(delay);
-		{
-			CmdRead* cmdRead;
-			{
-				std::unique_lock<std::mutex> lkReaders(lockReaders);
-				if (readers.size() == 0) continue;
-				delay = 1000 * 15;
-				auto i = readers.begin();
-				int index = 0;
-				for (; i != readers.end(); i++) {
-					index--;
-					if (index <= 0) break;
-				}
-				cmdRead = i->second;
-			}
-			cmdRead->Write("hello\n");
-		}
+		WriteToCmd("hello\n");
 	}
 }
 
